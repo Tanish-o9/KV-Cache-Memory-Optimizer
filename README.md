@@ -37,6 +37,8 @@ An experimental benchmarking and optimization toolkit for analyzing **Key-Value 
 - [🏗️ Project Architecture](#️-project-architecture)
 - [🔬 Key Engineering Takeaways](#-key-engineering-takeaways)
 - [💼 Resume / Portfolio Highlights](#-resume--portfolio-highlights)
+- [👤 Author & Maintainer](#-author--maintainer)
+- [📄 License](#-license)
 
 ---
 
@@ -286,6 +288,18 @@ KV-Cache-Memory-Optimizer/
 * **Quantization & CPU Offloading:** Integrated `optimum-quanto` for 4-bit/2-bit KV compression and implemented CPU offloading strategies, quantifying memory–latency–quality trade-offs.
 * **CUDA Observability:** Implemented precise GPU profiling using `torch.cuda` memory tracking, CUDA synchronizations, and custom PyTorch peak memory resets.
 * **Interactive Tooling:** Designed a production-grade Streamlit & Plotly telemetry dashboard featuring pre-flight VRAM estimation and historical run inspection.
+
+---
+
+## 👤 Author & Maintainer
+
+Developed and maintained by **[Tanishq / Tanish-o9](https://github.com/Tanish-o9)**
+
+* **GitHub:** [@Tanish-o9](https://github.com/Tanish-o9)
+* **Project Repository:** [https://github.com/Tanish-o9/KV-Cache-Memory-Optimizer](https://github.com/Tanish-o9/KV-Cache-Memory-Optimizer)
+* **Contact / Feedback:** Feel free to open an issue or reach out via GitHub!
+
+If you find this research toolkit useful for LLM inference profiling and memory optimization, please consider starring ⭐ the repository!
 
 ---
 
