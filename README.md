@@ -1,345 +1,152 @@
-# ⚡ KV Cache Memory Optimizer
+# KV Cache Memory Optimizer
 
-### Benchmarking LLM Inference Memory, Latency & Performance Trade-offs
+Benchmark and compare KV cache optimization strategies for LLM inference on consumer GPUs.
 
-An experimental toolkit for analyzing and optimizing **Key-Value (KV) cache memory** during Large Language Model (LLM) inference. Compare cache strategies, measure GPU memory consumption, evaluate generation performance, and visualize results through an interactive Streamlit dashboard.
+## What This Does
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white" alt="Python"/>
-  <img src="https://img.shields.io/badge/PyTorch-Deep%20Learning-ee4c2c?logo=pytorch&logoColor=white" alt="PyTorch"/>
-  <img src="https://img.shields.io/badge/Hugging%20Face-Transformers-yellow?logo=huggingface&logoColor=black" alt="Hugging Face"/>
-  <img src="https://img.shields.io/badge/Streamlit-Dashboard-ff4b4b?logo=streamlit&logoColor=white" alt="Streamlit"/>
-  <img src="https://img.shields.io/badge/Project-ML%20Optimization-success" alt="ML Optimization"/>
-</p>
+Measures how different KV cache implementations affect GPU memory usage, generation latency, throughput, and output quality when running a pretrained LLM. This is a **benchmarking project**, not a training project.
 
----
+### KV Cache Background
 
-## 📌 Overview
+During autoregressive generation, transformer models cache the Key and Value projections from each attention layer to avoid recomputation. This "KV cache" grows linearly with sequence length and can dominate GPU memory on long contexts.
 
-During autoregressive text generation, an LLM stores previously computed attention keys and values in GPU memory. This KV cache avoids recomputing attention states for every generated token, improving inference efficiency.
+**Theoretical KV cache memory:**
 
-However, KV cache memory grows with sequence length and batch size. Under limited GPU memory, this can restrict context length, concurrent requests, and inference capacity.
-
-**KV Cache Memory Optimizer** investigates this problem by benchmarking different cache strategies and measuring their trade-offs in memory consumption, latency, throughput, and output consistency.
-
-The project combines theoretical memory estimation with actual measurements rather than relying solely on theoretical compression ratios.
-
-## 🎯 Objectives
-
-- Measure KV cache memory consumption across different context lengths and batch sizes.
-- Compare Dynamic, Quantized, Offloaded, and Static cache implementations where supported.
-- Evaluate peak GPU memory, generation latency, and token throughput.
-- Compare optimized outputs against a dynamic-cache baseline.
-- Validate theoretical KV cache estimates against measured memory.
-- Visualize experiments using an interactive Streamlit dashboard.
-- Identify practical trade-offs between memory efficiency and inference performance.
-
-## 🧠 Understanding KV Cache
-
-Transformers generate text one token at a time. During self-attention, each layer computes key (K) and value (V) tensors for the input tokens.
-
-Instead of recomputing these tensors for all previous tokens at every generation step, the model can store and reuse them in a KV cache.
-
-**Without caching:** Previously computed attention states may need to be recomputed.
-
-**With caching:** Previously computed keys and values are reused, reducing redundant computation.
-
-The trade-off is memory consumption: as the sequence grows, more K and V tensors must be stored.
-
-## 📐 KV Cache Memory Formula
-
-For a conventional decoder-only transformer, the approximate uncompressed KV cache size is:
-
-\[
-M_{\mathrm{KV}} =
-2 \times L \times H_{\mathrm{KV}} \times D_{\mathrm{head}}
-\times T \times B \times S
-\]
-
-Where:
-
-| Symbol | Description |
-|---|---|
-| \(L\) | Number of transformer layers |
-| \(H_{\mathrm{KV}}\) | Number of key-value heads |
-| \(D_{\mathrm{head}}\) | Dimension of each attention head |
-| \(T\) | Number of cached tokens |
-| \(B\) | Batch size |
-| \(S\) | Bytes per stored element |
-| \(2\) | Accounts for keys and values |
-
-The formula estimates raw cache tensor storage. Actual GPU memory can be higher because of quantization metadata, temporary tensors, workspaces, allocator overhead, and reserved memory.
-
-For static caches, allocated capacity may exceed the number of tokens currently stored. Quantized caches may also require additional metadata and residual buffers.
-
-## ⚙️ Cache Strategies
-
-| Strategy | Approach | Main trade-off |
-|---|---|---|
-| Dynamic Cache | Grows as tokens are generated | Flexible allocation, no inherent compression |
-| Quantized Cache | Stores K/V using lower-precision representations | Reduced cache storage, possible quality or latency impact |
-| Offloaded Cache | Moves cache data between GPU and CPU memory | Lower GPU memory pressure, possible transfer overhead |
-| Static Cache | Reserves a predetermined cache capacity | Predictable allocation, potentially better compilation compatibility |
-
-Availability depends on the model architecture, Transformers version, quantization backend, and device.
-
-Unsupported strategies should be reported explicitly rather than silently replaced with another implementation.
-
-## 🏗️ Architecture
-
-The project follows a lightweight Python architecture:
-
-```text
-KV Cache Memory Optimizer
-│
-├── app.py
-│   └── Streamlit dashboard and visualizations
-│
-├── benchmark.py
-│   └── Model loading, cache strategies and benchmarks
-│
-├── memory_estimator.py
-│   └── Theoretical KV cache memory calculations
-│
-├── requirements.txt
-│   └── Project dependencies
-│
-├── README.md
-│   └── Documentation
-│
-└── results/
-    └── Benchmark CSV files
+```
+bytes = 2 × layers × kv_heads × head_dim × tokens × batch_size × bytes_per_element
 ```
 
-The actual file structure may differ slightly depending on the implementation.
+For Qwen2.5-0.5B (24 layers, 2 KV heads, 64 head dim) at 1024 tokens in float16:
+`2 × 24 × 2 × 64 × 1024 × 1 × 2 = 12 MB`
 
-## 📊 Benchmark Metrics
+### Cache Strategies Tested
 
-The benchmarking pipeline evaluates the following metrics:
+| Strategy | Description | Status |
+|----------|-------------|--------|
+| **Dynamic** | Standard growing KV cache (baseline) | Supported (built-in) |
+| **Quantized (4-bit)** | Quantized KV cache via `optimum-quanto` | Supported (`optimum-quanto`) |
+| **Quantized (2-bit)** | Quantized KV cache via `optimum-quanto` | Supported (`optimum-quanto`) |
+| **Offloaded** | Static cache with CPU offloading | Supported (built-in) |
+| **Static** | Pre-allocated fixed-size cache | Unsupported on Windows (requires `triton`) |
 
-**Memory**
-- Peak allocated GPU memory.
-- Peak reserved GPU memory.
-- KV cache tensor memory when measurable.
-- Theoretical cache memory estimates.
-- Memory savings relative to a matching baseline.
+## Setup
 
-**Inference performance**
-- Time to first token (TTFT), when reliably measured.
-- Total generation latency.
-- Average inter-token latency, where supported.
-- Tokens generated per second.
+### Requirements
 
-**Output consistency**
-- Token-level agreement with the dynamic-cache baseline.
-- Length of the identical initial token sequence.
-- Full sequence match.
-- Decoded outputs for selected prompts.
+- Windows 10/11
+- Python 3.10+
+- NVIDIA GPU with CUDA support (tested on RTX 2050 / 4 GB VRAM)
+- ~2 GB disk space for model weights
 
-**Reliability**
-- Supported and unsupported strategy status.
-- Out-of-memory failures.
-- Benchmark configuration and environment details.
-
-Measurements should use comparable prompts, decoding settings, batch sizes, and generation lengths.
-
-## 🖥️ Interactive Dashboard
-
-The Streamlit dashboard provides a central interface for inspecting benchmark experiments.
-
-Expected capabilities include:
-
-- GPU and model information.
-- Cache strategy selection.
-- Context length and batch size configuration.
-- Benchmark execution and progress feedback.
-- Memory and latency comparison charts.
-- Throughput analysis.
-- Theoretical versus measured memory visualization.
-- Benchmark history and CSV export.
-- Output consistency analysis.
-
-All displayed benchmark metrics should come from actual runs. Empty states should be shown when no measurements are available.
-
-> Add an actual screenshot of your dashboard here after the application is running. Avoid presenting mock metrics as real experimental results.
-
-## 🛠️ Tech Stack
-
-- **Python** — implementation and experiment orchestration.
-- **PyTorch** — model inference and GPU memory profiling.
-- **Hugging Face Transformers** — pretrained LLMs and KV cache implementations.
-- **Streamlit** — interactive dashboard.
-- **Plotly or Matplotlib** — charts and result visualization.
-- **Pandas** — benchmark result processing.
-- **CUDA / NVIDIA tools** — GPU execution and supplementary memory monitoring.
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Python version compatible with the selected PyTorch and Transformers releases.
-- Git.
-- NVIDIA GPU and a compatible CUDA-enabled PyTorch installation for GPU benchmarking.
-- Sufficient available memory for the selected model and workload.
-
-A smaller pretrained model such as `Qwen/Qwen2.5-0.5B` is a reasonable starting point for a GPU with 4 GB VRAM, although actual feasibility depends on model loading, dtype, cache strategy, and other GPU allocations.
-
-### 1. Clone the repository
-
-```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
-cd kv-cache-memory-optimizer
-```
-
-Replace the placeholder with your actual repository URL.
-
-### 2. Create a virtual environment
-
-Windows PowerShell:
+### Installation (PowerShell)
 
 ```powershell
+# Create and activate virtual environment
+cd "c:\Users\tanis\Projects\KV Cache Memory Optimizer"
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
 
-If PowerShell blocks activation, consult your system's execution-policy restrictions rather than changing security settings blindly. You can also run the environment's Python executable directly.
-
-### 3. Install dependencies
-
-```powershell
-python -m pip install --upgrade pip
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-Install a PyTorch build compatible with your GPU and CUDA environment if the requirements file does not already specify an appropriate build. Verify the installation before benchmarking.
-
-### 4. Verify GPU availability
+If you already have PyTorch with CUDA installed system-wide, you can skip the venv and just install the extra packages:
 
 ```powershell
-python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
+pip install quanto streamlit plotly pandas pyyaml
 ```
 
-A CPU fallback may be useful for functional testing, but CPU measurements must not be presented as GPU benchmark results.
+## Usage
 
-### 5. Launch the dashboard
+### Run a Quick Benchmark (CLI)
+
+```powershell
+# Small test — dynamic cache only, 128 tokens
+python benchmark.py --context-lengths 128 --strategies dynamic
+
+# Full benchmark — all strategies, multiple context lengths
+python benchmark.py --context-lengths 128 256 512 --batch-sizes 1
+
+# Specific strategies
+python benchmark.py --strategies dynamic quantized_quanto_4bit offloaded
+```
+
+### Launch the Dashboard
 
 ```powershell
 streamlit run app.py
 ```
 
-Open the local URL printed by Streamlit in your browser.
+Then click **"▶️ Start Benchmark"** in the dashboard to run benchmarks interactively. Results appear as charts and tables.
 
-## 🧪 Running Experiments
+### Command-Line Options
 
-Start with a small workload to verify that the model and cache implementation work.
+```
+--model              Model name (default: Qwen/Qwen2.5-0.5B)
+--context-lengths    Token counts to test (default: 128 256)
+--batch-sizes        Batch sizes to test (default: 1)
+--max-new-tokens     Tokens to generate per run (default: 50)
+--strategies         Filter strategies by name
+```
 
-Suggested initial configuration:
+## Output
 
-| Parameter | Initial value |
-|---|---|
-| Model | `Qwen/Qwen2.5-0.5B` |
-| Cache strategy | Dynamic |
-| Context length | 128–256 tokens |
-| Batch size | 1 |
-| Decoding | Greedy |
-| Generated tokens | 32–64 |
-| Repetitions | 3 or more after the smoke test |
+Results are saved to `results/` as both CSV and JSON:
 
-After verifying the baseline:
+```
+results/benchmark_20261029_220500.csv
+results/benchmark_20261029_220500.json
+```
 
-1. Run the same configuration using a supported quantized cache.
-2. Compare offloaded cache if compatible.
-3. Test static cache where supported.
-4. Increase context length gradually.
-5. Test larger batches only when sufficient GPU memory is available.
-6. Save the actual results and inspect the dashboard.
+Each row contains: strategy, context length, batch size, peak GPU memory, incremental memory, theoretical cache size, latency, tokens/sec, output match ratio, and status.
 
-Benchmarking should include warm-up runs, CUDA synchronization, repeated measurements, and consistent generation settings.
+## Project Structure
 
-## 📈 How to Interpret Results
+```
+├── app.py               # Streamlit dashboard
+├── benchmark.py         # Model loading, cache strategies, profiling, CLI
+├── memory_estimator.py  # Theoretical KV cache memory calculations
+├── requirements.txt     # Dependencies
+├── README.md            # This file
+└── results/             # Benchmark output (CSV/JSON)
+```
 
-### Memory savings
+## Metrics Collected
 
-\[
-\text{Memory Saved (\%)} =
-\frac{M_{\mathrm{baseline}}-M_{\mathrm{optimized}}}
-{M_{\mathrm{baseline}}}\times100
-\]
+- **Peak allocated GPU memory** — maximum `torch.cuda.max_memory_allocated()`
+- **Incremental memory** — peak allocated minus pre-generation baseline
+- **Theoretical cache memory** — formula-based estimate from model config
+- **Time to first token (TTFT)** — latency for generating 1 token
+- **Total generation latency** — wall-clock time for full generation
+- **Tokens per second** — generated tokens / total time
+- **Output match ratio** — token-level agreement with dynamic-cache baseline
 
-Use comparable measurements and clearly state whether the values refer to cache tensor storage, incremental memory, or total peak GPU memory.
+### Important Notes on Memory Measurement
 
-### Latency overhead
+- Incremental GPU memory ≠ exact KV cache memory. Temporary tensors, CUDA workspace allocations, and allocator fragmentation contribute to the measured value.
+- Theoretical estimates assume dense storage without metadata, scales, or padding overhead.
+- Quantized caches may use more memory than the raw bit-width suggests due to quantization scales and residual buffers.
+- All GPU measurements use `torch.cuda.synchronize()` before timing and `reset_peak_memory_stats()` before each run.
 
-\[
-\text{Latency Overhead (\%)} =
-\frac{t_{\mathrm{optimized}}-t_{\mathrm{baseline}}}
-{t_{\mathrm{baseline}}}\times100
-\]
+## Hardware Limitations
 
-Positive values indicate additional latency; negative values indicate lower measured latency.
+- **4 GB VRAM** limits practical context lengths. Expect OOM at ~2048 tokens depending on batch size and strategy.
+- Quantized cache reduces KV cache memory but not model weights — the model itself uses ~990 MB in float16.
+- Offloaded cache trades GPU memory for increased latency.
+- CPU-only runs will not produce GPU memory data.
 
-### Throughput
+## Interpreting Results
 
-\[
-\text{Throughput} =
-\frac{\text{Generated Tokens}}{\text{Generation Time}}
-\]
+- **Dynamic cache** provides the baseline. All other strategies are compared against it.
+- **Lower peak memory** with similar throughput = good optimization.
+- **Higher latency** with lower memory = expected tradeoff for offloading.
+- **Match ratio < 1.0** for quantized caches is expected — reduced precision changes logits slightly.
+- **Match ratio = 1.0** for static cache is expected — same precision, just pre-allocated.
 
-State whether throughput is measured per request or across a batch.
+## Known Limitations
 
-### Output consistency
+- Only tests greedy decoding (`do_sample=False`).
+- Does not benchmark continuous batching or paged attention (requires vLLM).
+- Theoretical estimates for quantized caches don't account for quantization metadata.
+- TTFT measurement includes a small overhead from the `generate()` call setup.
 
-Compare generated token IDs under identical prompts and deterministic decoding settings. Numerical changes introduced by cache quantization can alter generated tokens, even when the decoded answers appear similar.
-
-## 🔬 Experimental Considerations
-
-- Cache memory and total GPU memory are different metrics.
-- Static cache allocation depends on the configured maximum capacity.
-- Quantization overhead depends on the backend and implementation.
-- Offloading can reduce GPU memory usage without reducing total system memory.
-- Different model architectures use different KV head counts.
-- CUDA allocator reservation can exceed currently allocated tensor memory.
-- Performance results vary with GPU hardware, software versions, prompt length, and workload.
-- A smaller cache does not automatically guarantee faster generation.
-
-The goal is to measure these effects rather than assume that one strategy is always best.
-
-## ⚠️ Limitations
-
-- Cache strategy support varies across model architectures and library versions.
-- Small models may not show dramatic end-to-end memory savings because model weights and other allocations contribute to total GPU memory.
-- Quantized cache implementations may introduce additional dependencies and numerical differences.
-- Results obtained on one GPU cannot be generalized to all inference hardware.
-- Theoretical memory estimates do not replace direct measurements.
-
-## 🔮 Future Improvements
-
-- Benchmark additional model architectures.
-- Compare different supported cache quantization precisions.
-- Add multi-request workloads and concurrency analysis.
-- Investigate prefix caching and cache eviction.
-- Compare optimized cache behavior across GPU hardware.
-- Export reproducible benchmark reports.
-- Explore integration with production inference engines such as vLLM where the environment supports it.
-
-## 💼 Resume Description
-
-**KV Cache Memory Optimizer | Python, PyTorch, Hugging Face Transformers, Streamlit**
-
-- Developed an LLM inference benchmarking toolkit to analyze KV cache memory consumption across different context lengths and batch sizes.
-- Benchmarked supported Dynamic, Quantized, Offloaded, and Static cache implementations to evaluate memory–latency trade-offs.
-- Built a theoretical memory estimator and an interactive dashboard to visualize GPU memory usage, throughput, latency, and output consistency.
-
-Update these bullets with verified quantitative results once experiments are complete.
-
-## 🤝 Contributing
-
-Contributions, bug reports, and suggestions are welcome. Please include the model configuration, software versions, hardware details, and reproduction steps when reporting benchmark issues.
-
-## 📄 License
-
-Add a license appropriate for your project before distributing it publicly. Also review the pretrained model's license and usage terms separately.
-
----
-
-**Built to explore a practical question in LLM engineering: how can inference memory be reduced without unnecessarily sacrificing performance or output quality?**
