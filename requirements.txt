@@ -1,0 +1,9 @@
+# KV Cache Memory Optimizer
+
+torch>=2.2.0
+transformers>=4.40.0
+streamlit>=1.30.0
+plotly>=5.18.0
+pyyaml>=6.0
+optimum-quanto>=0.2.7
+pandas>=2.0.0
