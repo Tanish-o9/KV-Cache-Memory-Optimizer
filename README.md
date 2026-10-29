@@ -5,6 +5,8 @@
 An experimental benchmarking and optimization toolkit for analyzing **Key-Value (KV) cache memory** during Large Language Model (LLM) autoregressive inference. Measure exact GPU VRAM consumption across context lengths, evaluate precision quantization and CPU offloading trade-offs, verify token consistency, and inspect telemetry via a multi-page **Streamlit & Plotly** dashboard.
 
 <p align="center">
+  <a href="https://github.com/Tanish-o9/KV-Cache-Memory-Optimizer/actions/workflows/ci.yml"><img src="https://github.com/Tanish-o9/KV-Cache-Memory-Optimizer/actions/workflows/ci.yml/badge.svg" alt="CI Status"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"/></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%20%7C%203.13-blue?logo=python&logoColor=white" alt="Python"/></a>
   <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.6.0%2Bcu124-ee4c2c?logo=pytorch&logoColor=white" alt="PyTorch"/></a>
   <a href="https://developer.nvidia.com/cuda-toolkit"><img src="https://img.shields.io/badge/CUDA-12.4%20(RTX%202050)-76b900?logo=nvidia&logoColor=white" alt="CUDA"/></a>
@@ -12,7 +14,10 @@ An experimental benchmarking and optimization toolkit for analyzing **Key-Value 
   <a href="https://streamlit.io/"><img src="https://img.shields.io/badge/Streamlit-Observability%20Dashboard-ff4b4b?logo=streamlit&logoColor=white" alt="Streamlit"/></a>
   <a href="https://github.com/huggingface/optimum-quanto"><img src="https://img.shields.io/badge/Quantization-optimum--quanto-8b5cf6" alt="Optimum Quanto"/></a>
   <img src="https://img.shields.io/badge/Tests-13%20Passed%20(100%25)-brightgreen" alt="Tests"/>
-  <img src="https://img.shields.io/badge/Status-Empirically%20Tested-success" alt="Status"/>
+</p>
+
+<p align="center">
+  <img src="assets/dashboard_preview.png" alt="KV Cache Memory Optimizer Dashboard Preview" width="95%"/>
 </p>
 
 ---
@@ -254,6 +259,45 @@ python -m unittest discover tests
 
 ## 🏗️ Project Architecture
 
+```mermaid
+flowchart TD
+    User([User / CLI / UI]) -->|Configure Workload| Engine[Benchmark Engine - benchmark.py]
+    
+    subgraph ModelLayer [Pretrained LLM Runtime]
+        Loader[Model Loader] --> Model[Qwen2.5-0.5B in FP16]
+        Tokenizer[AutoTokenizer]
+    end
+
+    subgraph CacheLayer [KV Cache Strategy Suite]
+        Dynamic["DynamicCache (FP16 Baseline)"]
+        Quanto4B["QuantizedCache (4-Bit via optimum-quanto)"]
+        Quanto2B["QuantizedCache (2-Bit via optimum-quanto)"]
+        Offload["StaticCache (CPU Host RAM Offload)"]
+    end
+
+    Engine --> Loader
+    Engine --> CacheLayer
+
+    subgraph ProfilingLayer [CUDA Hardware Telemetry]
+        CUDASync["torch.cuda.synchronize()"]
+        PeakTracker["torch.cuda.max_memory_allocated()"]
+        Timer["High-Resolution Timer (TTFT & Latency)"]
+        Consistency["Output Consistency Evaluator"]
+    end
+
+    CacheLayer --> ProfilingLayer
+
+    subgraph PresentationLayer [Analysis & Observability]
+        Results[("Results DB (CSV & JSON)")]
+        Estimator["Theoretical Estimator (memory_estimator.py)"]
+        Dashboard["Streamlit Observability Dashboard (app.py)"]
+    end
+
+    ProfilingLayer --> Results
+    Results --> Dashboard
+    Estimator --> Dashboard
+```
+
 ```text
 KV-Cache-Memory-Optimizer/
 ├── app.py                      # Streamlit multi-page observability dashboard
@@ -293,7 +337,7 @@ KV-Cache-Memory-Optimizer/
 
 ## 👤 Author & Maintainer
 
-Developed and maintained by **[Tanishq / Tanish-o9](https://github.com/Tanish-o9)**
+Developed and maintained by **[Tanish / Tanish-o9](https://github.com/Tanish-o9)**
 
 * **GitHub:** [@Tanish-o9](https://github.com/Tanish-o9)
 * **Project Repository:** [https://github.com/Tanish-o9/KV-Cache-Memory-Optimizer](https://github.com/Tanish-o9/KV-Cache-Memory-Optimizer)
